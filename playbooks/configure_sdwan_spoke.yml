@@ -1,0 +1,60 @@
+---
+- name: Read Nautobot facts for FortiGate Hubs
+  hosts: fortigates
+  gather_facts: false
+  tasks:
+    - name: Read Nautobot facts for {{ inventory_hostname }}
+      ansible.builtin.include_role:
+        name: nautobot_facts
+        
+- name: Configure SD-WAN zones and members on FortiGate
+  hosts: fortigate_spokes
+  gather_facts: false
+
+  module_defaults:
+    group/fortinet.fortios.fortios:
+      access_token: "{{ vault_fortios_token }}"
+      vdom: "{{ vdom }}"
+
+  tasks:
+    - name: Create SD-WAN zones
+      fortinet.fortios.fortios_system_sdwan:
+        system_sdwan:
+          status: "enable"
+          zone:
+            - name: "{{ zone_underlay }}"
+            - name: "{{ zone_overlay }}"
+
+    - name: Add SD-WAN members
+      fortinet.fortios.fortios_system_sdwan:
+        system_sdwan:
+          status: "enable"
+          members:
+            - interface: "{{ int_wan1 }}"
+              zone: "{{ zone_underlay }}"
+              seq_num: "0"
+            - interface: "{{ int_wan2 }}"
+              zone: "{{ zone_underlay }}"
+              seq_num: "0"
+            - interface: "{{ item }}_1"
+              zone: "{{ zone_overlay }}"
+              seq_num: "0"
+            - interface: "{{ item }}_2"
+              zone: "{{ zone_overlay }}"
+              seq_num: "0"
+      loop: "{{ groups['fortigate_hubs'] }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Display results
+      debug:
+        msg:  
+        - "{{ inventory_hostname }} -> SD-WAN zone {{ zone_underlay }} configured"
+        - "{{ inventory_hostname }} -> SD-WAN zone {{ zone_overlay }} configured"
+        - "{{ inventory_hostname }} -> SD-WAN members {{ int_wan1 }} configured"
+        - "{{ inventory_hostname }} -> SD-WAN members {{ int_wan2 }} configured"
+        - "{{ inventory_hostname }} -> SD-WAN members {{ item }}_1 configured"
+        - "{{ inventory_hostname }} -> SD-WAN members {{ item }}_2 configured"
+      loop: "{{ groups['fortigate_hubs'] }}"
+      loop_control:
+        label: "{{ item }}"

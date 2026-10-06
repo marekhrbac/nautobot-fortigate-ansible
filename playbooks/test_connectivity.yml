@@ -1,0 +1,31 @@
+---
+- name: Read Nautobot facts for all FortiGates
+  hosts: fortigates
+  gather_facts: false
+  tasks:
+    - name: Read Nautobot facts for {{ inventory_hostname }}
+      ansible.builtin.include_role:
+        name: nautobot_facts
+
+- name: Test connectivity to FortiGate
+  hosts: fortigates
+  gather_facts: false
+
+  tasks:
+    - name: Read system status
+      fortinet.fortios.fortios_monitor_fact:
+        access_token: "{{ vault_fortios_token }}"
+        vdom: "{{ vdom }}"
+        selector: "system_status"
+      register: fgt_status
+      ignore_errors: true
+
+    - name: Check FortiGate connectivity
+      ansible.builtin.assert:
+        that:
+          - fgt_status is not failed
+        fail_msg: "FortiGate {{ inventory_hostname }} is not reachable or not responding correctly!"
+
+    - name: Show hostname and version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} -> {{ fgt_status.meta.results.hostname }} / {{ fgt_status.meta.version }}"

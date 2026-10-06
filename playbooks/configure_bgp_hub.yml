@@ -1,0 +1,128 @@
+---
+- name: Read Nautobot facts for FortiGate Hubs
+  hosts: fortigates
+  gather_facts: false
+  tasks:
+    - name: Read Nautobot facts for {{ inventory_hostname }}
+      ansible.builtin.include_role:
+        name: nautobot_facts
+        
+- name: Configure BGP Hub (Route Reflector) on FortiGate
+  hosts: fortigate_hubs
+  gather_facts: false
+
+  module_defaults:
+    group/fortinet.fortios.fortios:
+      access_token: "{{ vault_fortios_token }}"
+      vdom: "{{ vdom }}"
+
+  tasks:
+    - name: Configure router bgp with neighbor-groups and neighbor-range
+      fortinet.fortios.fortios_router_bgp:
+        router_bgp:
+          as: "{{ bgp_asn }}"
+          router_id: "{{ip_wan1.split('/')[0]}}"
+          ibgp_multipath: enable
+          additional_path: enable
+          graceful_restart: enable
+          neighbor_group:
+            - name: "ng_ipsec01"
+              link_down_failover: enable
+              next_hop_self: enable
+              next_hop_self_rr: enable
+              soft_reconfiguration: enable
+              remote_as: "{{ bgp_asn }}"
+              update_source: "{{ int_lo_ipsec01 }}"
+              route_reflector_client: enable
+              keep_alive_timer: 5
+              holdtime_timer: 15
+              advertisement_interval: 2
+              connect_timer: 1
+            - name: "ng_ipsec02"
+              link_down_failover: enable
+              next_hop_self: enable
+              next_hop_self_rr: enable
+              soft_reconfiguration: enable
+              remote_as: "{{ bgp_asn }}"
+              update_source: "{{ int_lo_ipsec02 }}"
+              route_reflector_client: enable
+              keep_alive_timer: 5
+              holdtime_timer: 15
+              advertisement_interval: 2
+              connect_timer: 1
+          neighbor_range:
+            - id: 1
+              prefix: "{{ ng_ipsec01_bgp }}"
+              neighbor_group: "ng_ipsec01"
+            - id: 2
+              prefix: "{{ ng_ipsec02_bgp }}"
+              neighbor_group: "ng_ipsec02"
+          network:
+            - id: 1
+              prefix: "{{ ip_lo_testing}}"
+
+    - name: Create BGP objects for IPSEC01 and IPSEC02
+      fortinet.fortios.fortios_firewall_address:
+        state: present
+        firewall_address:
+          name: "{{ item.name }}"
+          subnet: "{{ item.subnet }}"
+      loop:
+      - { name: "{{ ng_ipsec01_bgp }}", subnet: "{{ ng_ipsec01_bgp }}" }
+      - { name: "{{ ng_ipsec02_bgp }}", subnet: "{{ ng_ipsec02_bgp }}" }
+      - { name: "{{ ip_lo_ipsec01 }}", subnet: "{{ ip_lo_ipsec01 }}" }
+      - { name: "{{ ip_lo_ipsec02 }}", subnet: "{{ ip_lo_ipsec02 }}" }
+      - { name: "{{ sub_lo_testing }}", subnet: "{{ sub_lo_testing }}" }
+      - { name: "{{ ip_lo_testing }}", subnet: "{{ ip_lo_testing }}" }
+
+
+    - name: Create BGP firewall policy to allow BGP traffic
+      fortinet.fortios.fortios_firewall_policy:
+        state: present
+        firewall_policy:
+          name: "bgp_allow"
+          policyid: "1"
+          srcintf: 
+            - name: "{{ zone_overlay }}"
+          dstintf: 
+            - name: "{{ int_lo_ipsec01 }}"
+            - name: "{{ int_lo_ipsec02 }}"
+          srcaddr:
+            - name: "{{ng_ipsec01_bgp}}"
+            - name: "{{ng_ipsec02_bgp}}"
+          dstaddr:
+            - name: "{{ip_lo_ipsec01}}"
+            - name: "{{ip_lo_ipsec02}}"
+          action: accept
+          schedule: "always"
+          logtraffic: all
+          service:
+            - name: "BGP"
+
+
+    - name: Create BGP firewall policy for testing BGP traffic
+      fortinet.fortios.fortios_firewall_policy:
+        state: present
+        firewall_policy:
+          name: "test_ping_allow"
+          policyid: "2"
+          srcintf: 
+            - name: "{{ zone_overlay }}"
+          dstintf: 
+            - name: "{{ int_lo_testing }}"
+          srcaddr:
+            - name: "{{sub_lo_testing}}"
+          dstaddr:
+            - name: "{{ip_lo_testing}}"
+          action: accept
+          schedule: "always"
+          logtraffic: all
+          service:
+            - name: "PING"
+
+
+    - name: Display result
+      debug:
+        msg: 
+        - "{{ inventory_hostname }} -> BGP AS {{ bgp_asn }} configured with neighbor-range {{ ng_ipsec01_bgp }}"
+        - "{{ inventory_hostname }} -> BGP AS {{ bgp_asn }} configured with neighbor-range {{ ng_ipsec02_bgp }}"  

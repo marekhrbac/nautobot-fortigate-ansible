@@ -1,0 +1,160 @@
+---
+- name: "Nautobot: query interfaces, prefixes and config context for {{ inventory_hostname }}"
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  networktocode.nautobot.graphql_info:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token | default(omit) }}"   
+    query: |
+      query ($device_name: [String]) {
+        devices(name: $device_name) {
+          config_context
+          interfaces {
+            name
+            tags {
+              name
+            }
+            ip_addresses {
+              address
+            }
+          }
+        }
+        prefixes {
+          prefix
+          tags {
+            name
+          }
+        }
+      }
+    graph_variables:
+      device_name: "{{ inventory_hostname }}"
+  register: nb_data
+  delegate_to: localhost 
+
+- name: "Nautobot: verify the device was found"
+  ansible.builtin.assert:
+    that:
+      - nb_data.data.devices | length > 0
+    fail_msg: >-
+      Device '{{ inventory_hostname }}' was not found in Nautobot.
+      Check that the inventory hostname matches the Device name in Nautobot.
+
+- name: "Nautobot: verify config context contains VDOM settings"
+  ansible.builtin.assert:
+    that:
+      - nb_data.data.devices[0].config_context.fortigate is defined
+      - nb_data.data.devices[0].config_context.fortigate.multi_vdom is defined
+      - nb_data.data.devices[0].config_context.fortigate.vdom is defined
+    fail_msg: >-
+      Device '{{ inventory_hostname }}' has no config context with
+      'fortigate.multi_vdom' and 'fortigate.vdom' in Nautobot. Check that it
+      has Platform FortiGate assigned or local config context data filled in.
+
+- name: "Nautobot: set VDOM variables from config context"
+  ansible.builtin.set_fact:
+    multi_vdom: "{{ nb_data.data.devices[0].config_context.fortigate.multi_vdom }}"
+    vdom: "{{ nb_data.data.devices[0].config_context.fortigate.vdom }}"
+
+- name: "Nautobot: build interface dict by sdwan tag"
+  ansible.builtin.set_fact:
+    _sdwan_if: >-
+      {{
+        _sdwan_if | default({}) | combine({item.tags[0].name: item})
+      }}
+  loop: "{{ nb_data.data.devices[0].interfaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.tags | length > 0
+    - item.tags[0].name in sdwan_tag_map
+
+- name: "Nautobot: build prefix dict by sdwan tag"
+  ansible.builtin.set_fact:
+    _sdwan_prefix: >-
+      {{
+        _sdwan_prefix | default({}) | combine({item.tags[0].name: item})
+      }}
+  loop: "{{ nb_data.data.prefixes }}"
+  loop_control:
+    label: "{{ item.prefix }}"
+  when:
+    - item.tags | length > 0
+    - item.tags[0].name in sdwan_tag_map
+
+- name: "Nautobot: verify interface data exists for all required roles"
+  ansible.builtin.assert:
+    that:
+      - tag in (_sdwan_if | default({}))
+    fail_msg: >-
+      Device '{{ inventory_hostname }}' is missing an interface with tag
+      '{{ tag }}' in Nautobot - add it, otherwise the playbook would deploy
+      an incomplete config.
+  loop: "{{ sdwan_tag_map | dict2items | selectattr('value.int_var', 'defined') | map(attribute='key') | list }}"
+  loop_control:
+    loop_var: tag
+
+- name: "Nautobot: verify prefix data exists for all required roles"
+  ansible.builtin.assert:
+    that:
+      - tag in (_sdwan_prefix | default({}))
+    fail_msg: >-
+      Device '{{ inventory_hostname }}' is missing a prefix with tag
+      '{{ tag }}' in Nautobot - add it, otherwise the playbook would deploy
+      an incomplete config.
+  loop: "{{ sdwan_tag_map | dict2items | selectattr('value.net_var', 'defined') | map(attribute='key') | list }}"
+  loop_control:
+    loop_var: tag
+
+- name: "Nautobot: set int_* variables from Nautobot data"
+  ansible.builtin.set_fact:
+    "{{ mapping.int_var }}": "{{ _sdwan_if[tag].name }}"
+  loop: "{{ sdwan_tag_map | dict2items }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  vars:
+    tag: "{{ entry.key }}"
+    mapping: "{{ entry.value }}"
+  when: mapping.int_var is defined
+
+- name: "Nautobot: set ip_* variables from Nautobot data"
+  ansible.builtin.set_fact:
+    "{{ mapping.ip_var }}": "{{ _sdwan_if[tag].ip_addresses[0].address }}"
+  loop: "{{ sdwan_tag_map | dict2items }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  vars:
+    tag: "{{ entry.key }}"
+    mapping: "{{ entry.value }}"
+  when:
+    - mapping.ip_var is defined
+    - _sdwan_if[tag].ip_addresses | length > 0
+
+- name: "Nautobot: set net_* variables (BGP subnets) from prefixes"
+  ansible.builtin.set_fact:
+    "{{ mapping.net_var }}": "{{ _sdwan_prefix[tag].prefix }}"
+  loop: "{{ sdwan_tag_map | dict2items }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  vars:
+    tag: "{{ entry.key }}"
+    mapping: "{{ entry.value }}"
+  when:
+    - mapping.net_var is defined
+    - tag in (_sdwan_prefix | default({}))
+
+- name: "Nautobot: debug - resulting variables"
+  ansible.builtin.debug:
+    msg:
+      multi_vdom: "{{ multi_vdom | default('MISSING') }}"
+      vdom: "{{ vdom | default('MISSING') }}"
+      int_wan1: "{{ int_wan1 | default('MISSING') }}"
+      ip_wan1: "{{ ip_wan1 | default('MISSING') }}"
+      int_wan2: "{{ int_wan2 | default('MISSING') }}"
+      ip_wan2: "{{ ip_wan2 | default('MISSING') }}"
+      ip_lo_ipsec01: "{{ ip_lo_ipsec01 | default('MISSING') }}"
+      ip_lo_ipsec02: "{{ ip_lo_ipsec02 | default('MISSING') }}"
+      ip_lo_testing: "{{ ip_lo_testing | default('MISSING') }}"
+    verbosity: 1

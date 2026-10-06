@@ -1,0 +1,24 @@
+nautobot_url: "http://nautobot.msync.cz:8001"
+ 
+sdwan_tag_map:
+  sdwan-wan1:
+    int_var: int_wan1
+    ip_var: ip_wan1
+  sdwan-wan2:
+    int_var: int_wan2
+    ip_var: ip_wan2
+  sdwan-ipsec1:
+    int_var: int_lo_ipsec01
+    ip_var: ip_lo_ipsec01
+  sdwan-ipsec2:
+    int_var: int_lo_ipsec02
+    ip_var: ip_lo_ipsec02
+  sdwan-testing:
+    int_var: int_lo_testing
+    ip_var: ip_lo_testing
+  sdwan-ng_ipsec01_bgp:
+    net_var: ng_ipsec01_bgp
+  sdwan-ng_ipsec02_bgp:
+    net_var: ng_ipsec02_bgp
+  sdwan-sub_lo_testing:
+    net_var: sub_lo_testing

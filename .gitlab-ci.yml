@@ -1,0 +1,65 @@
+stages:
+  - precheck
+  - deploy
+  - test
+
+variables:
+  ANSIBLE_HOST_KEY_CHECKING: "false"
+  ANSIBLE_CONFIG: "${CI_PROJECT_DIR}/ansible.cfg"
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+
+default:
+  tags:
+    - gitlab_runner_fortigate_ansible
+  before_script:
+    - python3 -m venv .venv
+    - source .venv/bin/activate
+    - pip install ansible
+    - pip install netmiko
+    - pip install pynautobot
+    - ansible-galaxy collection install -r requirements.yml
+
+precheck_connectivity:
+  stage: precheck
+  script:
+    - ansible-playbook playbooks/test_connectivity.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+
+configure_interfaces:
+  stage: deploy
+  script:
+    - ansible-playbook playbooks/configure_interfaces_hub.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+    - ansible-playbook playbooks/configure_interfaces_spoke.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+  needs: ["precheck_connectivity"]
+
+configure_ipsec:
+  stage: deploy
+  script:
+    - ansible-playbook playbooks/configure_ipsec_hub.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+    - ansible-playbook playbooks/configure_ipsec_spoke.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+  needs: ["configure_interfaces"]
+
+configure_sdwan:
+  stage: deploy
+  script:
+    - ansible-playbook playbooks/configure_sdwan_hub.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+    - ansible-playbook playbooks/configure_sdwan_spoke.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+  needs: ["configure_ipsec"]
+
+configure_bgp:
+  stage: deploy
+  script:
+    - ansible-playbook playbooks/configure_bgp_hub.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+    - ansible-playbook playbooks/configure_bgp_spoke.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+  needs: ["configure_sdwan"]
+
+
+check_ping_status:
+  stage: test
+  script:
+    - ansible-playbook playbooks/check_ping.yml --vault-password-file <(echo "$VAULT_PASSWORD")
+  needs: ["configure_interfaces", "configure_ipsec", "configure_bgp", "configure_sdwan"]
+

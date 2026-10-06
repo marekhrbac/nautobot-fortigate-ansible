@@ -1,0 +1,109 @@
+---
+- name: Read Nautobot facts for FortiGate Hubs
+  hosts: fortigates
+  gather_facts: false
+  tasks:
+    - name: Read Nautobot facts for {{ inventory_hostname }}
+      ansible.builtin.include_role:
+        name: nautobot_facts
+        
+- name: Configure interfaces and delete all policies
+  hosts: fortigate_hubs
+  gather_facts: false
+
+  module_defaults:
+    group/fortinet.fortios.fortios:
+      access_token: "{{ vault_fortios_token }}"
+      vdom: "{{ vdom }}"
+
+  tasks:
+    - name: Read existing firewall policies
+      fortinet.fortios.fortios_configuration_fact:
+        selector: "firewall_policy"
+      register: existing_policies
+
+    - name: Delete each policy
+      fortinet.fortios.fortios_firewall_policy:
+        state: absent
+        firewall_policy:
+          policyid: "{{ item.policyid }}"
+      loop: "{{ existing_policies.meta.results }}"
+      loop_control:
+        label: "{{ item.policyid }}"
+
+    - name: Configure IP on WAN1
+      fortinet.fortios.fortios_system_interface:
+        state: present
+        system_interface:
+          vdom: "{{ vdom }}"
+          name: "{{ int_wan1 }}"
+          mode: static
+          status: up
+          ip: "{{ ip_wan1 }}"
+          allowaccess:
+            - ping
+            - https
+            - ssh
+
+    - name: Configure IP on WAN2
+      fortinet.fortios.fortios_system_interface:
+        state: present
+        system_interface:
+          vdom: "{{ vdom }}"
+          name: "{{ int_wan2 }}"
+          mode: static
+          status: up
+          ip: "{{ ip_wan2 }}"
+          allowaccess:
+            - ping
+            - https
+            - ssh
+
+    - name: Configure BGP Loopback IP for IPSEC01
+      fortinet.fortios.fortios_system_interface:
+        state: present
+        system_interface:
+          vdom: "{{ vdom }}"
+          type: "loopback"
+          name: "{{ int_lo_ipsec01 }}"
+          mode: static
+          status: up
+          ip: "{{ ip_lo_ipsec01 }}"
+          allowaccess:
+            - ping
+    
+    - name: Configure BGP Loopback IP for IPSEC02
+      fortinet.fortios.fortios_system_interface:
+        state: present
+        system_interface:
+          vdom: "{{ vdom }}"
+          type: "loopback"
+          name: "{{ int_lo_ipsec02 }}"
+          mode: static
+          status: up
+          ip: "{{ ip_lo_ipsec02 }}"
+          allowaccess:
+            - ping
+
+    - name: Configure testing loopback interface 
+      fortinet.fortios.fortios_system_interface:
+        state: present
+        system_interface:
+          vdom: "{{ vdom }}"
+          type: "loopback"
+          name: "{{ int_lo_testing }}"
+          mode: static
+          status: up
+          ip: "{{ ip_lo_testing }}"
+          allowaccess:
+            - ping
+  
+
+    - name: Display results
+      debug:
+        msg: 
+          - "{{ inventory_hostname }} -> {{ int_wan1 }} configured with IP {{ ip_wan1 }}"
+          - "{{ inventory_hostname }} -> {{ int_wan2 }} configured with IP {{ ip_wan2 }}"
+          - "{{ inventory_hostname }} -> {{ int_lo_ipsec01 }} configured with IP {{ ip_lo_ipsec01 }}"
+          - "{{ inventory_hostname }} -> {{ int_lo_ipsec02 }} configured with IP {{ ip_lo_ipsec02 }}"
+          - "{{ inventory_hostname }} -> {{ int_lo_testing }} configured with IP {{ ip_lo_testing }}"

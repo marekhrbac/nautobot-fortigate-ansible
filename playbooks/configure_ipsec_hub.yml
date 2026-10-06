@@ -1,0 +1,84 @@
+---
+- name: Read Nautobot facts for FortiGate Hubs
+  hosts: fortigates
+  gather_facts: false
+  tasks:
+    - name: Read Nautobot facts for {{ inventory_hostname }}
+      ansible.builtin.include_role:
+        name: nautobot_facts
+        
+- name: Configure IPSEC tunnels on FortiGate Hub
+  hosts: fortigate_hubs
+  gather_facts: false
+
+  module_defaults:
+    group/fortinet.fortios.fortios:
+      access_token: "{{ vault_fortios_token }}"
+      vdom: "{{ vdom }}"
+
+  tasks:
+    - name: IPSEC Phase1 IPSEC01 tunnel
+      fortinet.fortios.fortios_vpn_ipsec_phase1_interface:
+        state: present
+        vpn_ipsec_phase1_interface:
+          name: "fghub_01"
+          type: "dynamic"
+          interface: "{{ int_wan1 }}"
+          ike_version: "2"
+          peertype: "any"
+          net_device: "disable"
+          add_route: "disable"
+          exchange_interface_ip: "enable"
+          exchange_ip_addr4: "{{ ip_lo_ipsec01 .split('/')[0] }}"
+          proposal: "aes256-sha256"
+          dpd: "on-idle"
+          dpd_retrycount: "2"
+          dpd_retryinterval: "10"
+          dhgrp: "20"
+          authmethod: "psk"
+          psksecret: "{{ vault_ipsec_psk }}"
+
+    - name: IPSEC Phase2 IPSEC01 tunnel
+      fortinet.fortios.fortios_vpn_ipsec_phase2_interface:
+        state: present
+        vpn_ipsec_phase2_interface:
+          name: "fghub_01"
+          phase1name: "fghub_01"
+          proposal: "aes256-sha256"
+          dhgrp: "20"
+
+    - name: IPSEC Phase1 IPSEC02 tunnel
+      fortinet.fortios.fortios_vpn_ipsec_phase1_interface:
+        state: present
+        vpn_ipsec_phase1_interface:
+          name: "fghub_02"
+          type: "dynamic"
+          interface: "{{ int_wan2 }}"
+          ike_version: "2"
+          peertype: "any"
+          net_device: "disable"
+          add_route: "disable"
+          exchange_interface_ip: "enable"
+          exchange_ip_addr4: "{{ ip_lo_ipsec02.split('/')[0] }}"
+          proposal: "aes256-sha256"
+          dpd: "on-idle"
+          dpd_retrycount: "2"
+          dpd_retryinterval: "10"
+          dhgrp: "20"
+          authmethod: "psk"
+          psksecret: "{{ vault_ipsec_psk }}"
+
+    - name: IPSEC Phase2 IPSEC02 tunnel
+      fortinet.fortios.fortios_vpn_ipsec_phase2_interface:
+        state: present
+        vpn_ipsec_phase2_interface:
+          name: "fghub_02"
+          phase1name: "fghub_02"
+          proposal: "aes256-sha256"
+          dhgrp: "20"
+
+    - name: Display results
+      debug:
+        msg:  
+        - "{{ inventory_hostname }} -> IPSEC tunnel fghub_01 configured"
+        - "{{ inventory_hostname }} -> IPSEC tunnel fghub_02 configured"

@@ -1,0 +1,37 @@
+---
+- name: Read Nautobot facts for all FortiGates
+  hosts: fortigates
+  gather_facts: false
+  tasks:
+    - name: Read Nautobot facts for {{ inventory_hostname }}
+      ansible.builtin.include_role:
+        name: nautobot_facts
+
+
+- name: Test ping over SD-WAN and IPSEC tunnels on FortiGate
+  hosts: fortigate_spokes
+  gather_facts: false
+
+  tasks:
+    - name: Check ping over IPSEC
+      ansible.builtin.command:
+        cmd: "python3 {{ playbook_dir }}/../scripts/check_ping.py {{ ansible_host }} {{ vdom }} {{ multi_vdom }} {{ ip_lo_testing.split('/')[0] }} {{ hostvars[item].ip_lo_testing.split('/')[0] }}"
+      delegate_to: localhost
+      environment:
+        FORTIOS_SSH_USER: "{{ vault_fortios_username }}"
+        FORTIOS_SSH_PASSWORD: "{{ vault_fortios_password }}"
+      register: ping_result
+      changed_when: false 
+      no_log: true
+      failed_when: false
+      loop: "{{ groups['fortigate_hubs'] }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Results
+      ansible.builtin.debug:
+        msg: "{{ [inventory_hostname + ' -> ' + item.item + ':'] + item.stdout_lines }}"
+      loop: "{{ ping_result.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      failed_when: item.rc != 0
